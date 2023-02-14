@@ -4,7 +4,7 @@ class JWT {
 	protected $secret;
 	protected $issuer;
 
-	function __construct(string $secret = '', string $issuer = '') {
+	function __construct($secret = '', $issuer = '') {
 		$this->secret = $secret;
 		$this->issuer = $issuer;
 	}
@@ -23,8 +23,10 @@ class JWT {
 		// set issuer if not specified in payload but is in options
 		if (!isset($payload['iss']) && isset($options['iss'])) {
 			if (is_string($options['iss']) && $this->istrlen($options['iss']) > 0) {
+				$headers['iss'] = $options['iss'];
 				$payload['iss'] = $options['iss'];
 			} elseif ((is_bool($options['iss']) && $options['iss']) || !is_bool($options['iss'])) {
+				$headers['iss'] = $this->issuer;
 				$payload['iss'] = $this->issuer;
 			}
 		}
@@ -77,10 +79,11 @@ class JWT {
 
 		// split the JWT
 		$tokenParts = explode('.', $jwt);
-		$header = base64_decode($tokenParts[0]);
+		$headers = base64_decode($tokenParts[0]);
 		$payload = base64_decode($tokenParts[1]);
 		$signature_provided = $tokenParts[2];
 
+		$json_headers = json_decode($headers, true);
 		$json_payload = json_decode($payload, true);
 
 		// check if issuer specified is correct
@@ -99,6 +102,15 @@ class JWT {
 			}
 		}
 
+		if (isset($json_payload['iss']) || isset($json_header['iss'])) {
+			if (!isset($json_payload['iss']) || !isset($json_header['iss'])) {
+				return false;
+			}
+			if ($json_payload['iss'] !== $json_header['iss']) {
+				return false;
+			}
+		}
+
 		// check the expiration time if it is set
 		if(isset($json_payload['exp'])) {
 			if(($json_payload['exp'] - time()) < 0) {
@@ -113,8 +125,8 @@ class JWT {
 			}
 		}
 
-		// build a signature based on the header and payload using the secret
-		$base64_url_header = $this->base64url_encode($header);
+		// build a signature based on the headers and payload using the secret
+		$base64_url_header = $this->base64url_encode($headers);
 		$base64_url_payload = $this->base64url_encode($payload);
 		$signature = hash_hmac('SHA256', $base64_url_header . "." . $base64_url_payload, $options['secret'], true);
 		$base64_url_signature = $this->base64url_encode($signature);
