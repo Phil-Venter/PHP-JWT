@@ -1,66 +1,60 @@
 <?php
 
 class JWT {
-	protected $secret;
-	protected $issuer;
+	function __construct(
+        protected string $secret = '',
+        protected string $issuer = '',
+        protected int $ttl = 3600
+    ) { }
 
-	function __construct($secret = '', $issuer = '') {
-		$this->secret = $secret;
-		$this->issuer = $issuer;
-	}
-
-	public function generate(array $payload, array $headers = [], array $options = []): string
-	{
-		// if no secret is passed use global secret passed in constructor
-		if(!isset($options['secret']) || !is_string($options['secret']) || $this->istrlen($options['secret']) <= 0) {
-			$options['secret'] = $this->secret;
-		}
-
-		// set algorithm JWT is generated with to ensure validity
-		$headers['alg'] = 'HS256';
+    public function generate(
+        array $payload,
+        array $headers = []
+    ) {
+        $headers['alg'] = 'HS256';
 		$headers['typ'] = 'JWT';
 
-		// set issuer if not specified in payload but is in options
-		if (!isset($payload['iss']) && isset($options['iss'])) {
-			if (is_string($options['iss']) && $this->istrlen($options['iss']) > 0) {
-				$headers['iss'] = $options['iss'];
-				$payload['iss'] = $options['iss'];
-			} elseif ((is_bool($options['iss']) && $options['iss']) || !is_bool($options['iss'])) {
-				$headers['iss'] = $this->issuer;
-				$payload['iss'] = $this->issuer;
-			}
-		}
+        if (strlen($this->issuer) > 0) {
+            $headers['iss'] = $this->issuer;
+			$payload['iss'] = $this->issuer;
+        }
 
-		// set issued at time if not specified in payload but is in options
-		if (!isset($payload['iat']) && isset($options['iat'])) {
-			if (is_integer($options['iat'])) {
-				$payload['iat'] = $options['iat'];
-			} elseif (is_string($options['iat'])) {
-				$payload['iat'] = strtotime($options['iat']);
-			} elseif ((is_bool($options['iat']) && $options['iat']) || !is_bool($options['iat'])) {
-				$payload['iat'] = time();
-			}
-		}
+        if (is_string($payload['iat'])) {
+            $payload['iat'] = strtotime($payload['iat']);
+        } elseif (is_bool($payload['iat']) && $payload['iat']) {
+            $payload['iat'] = time();
+        }
 
-		// generate encoded header and payload
-		$headers_encoded = $this->base64url_encode(json_encode($headers));
-		$payload_encoded = $this->base64url_encode(json_encode($payload));
+        if (is_string($payload['exp'])) {
+            $payload['exp'] = strtotime($payload['exp']);
+        } elseif (is_bool($payload['exp']) && $payload['exp']) {
+            $payload['exp'] = time() + $this->ttl;
+        }
 
-		// generate signature and encode signature
-		$signature = hash_hmac('SHA256', "$headers_encoded.$payload_encoded", $options['secret'], true);
-		$signature_encoded = $this->base64url_encode($signature);
+        if (is_string($payload['nbf'])) {
+            $payload['nbf'] = strtotime($payload['nbf']);
+        }
 
-		return "$headers_encoded.$payload_encoded.$signature_encoded";
-	}
+        return implode('.', array_values($this->compile($headers, $payload)));
+    }
 
-	public function extract(string $jwt, array $options = []): bool|array {
-		// validate JWT before decoding
-		if (!$this->validate($jwt, $options)) {
-			return false;
-		}
+    protected function compile(
+        array $headerData,
+        array $payloadData,
+    ): array {
+		$header = $this->base64urlEncode(json_encode($headerData));
+		$payload = $this->base64urlEncode(json_encode($payloadData));
 
-		// split the JWT
-		$tokenParts = explode('.', $jwt);
+		$signatureData = hash_hmac('SHA256', "$header.$payload", $this->secret, true);
+		$signature = $this->base64urlEncode($signatureData);
+
+		return compact('header', 'payload', 'signature');
+    }
+
+    public function extract(
+        string $jwt
+    ): array {
+        $tokenParts = explode('.', $jwt);
 		$json_header = base64_decode($tokenParts[0]);
 		$json_payload = base64_decode($tokenParts[1]);
 		$signature = $tokenParts[2];
@@ -69,79 +63,31 @@ class JWT {
 		$payload = json_decode($json_payload, true);
 
 		return compact('header', 'payload', 'signature');
-	}
+    }
 
-	public function validate(string $jwt, array $options = []): bool {
-		// if no secret is passed use global secret passed in constructor
-		if(!isset($options['secret']) || !is_string($options['secret']) || $this->istrlen($options['secret']) <= 0) {
-			$options['secret'] = $this->secret;
+    public function validate(
+        string $jwt
+    ): bool {
+        list($headers, $payload, $signature) = $this->extract($jwt);
+
+        if (strlen($this->issuer) > 0 && !($this->issuer === $headers['iss'] === $payload['iss'])) {
+            return false;
+        }
+
+        if(isset($payload['exp']) && $payload['exp'] - time() < 0) {
+			return false;
 		}
 
-		// split the JWT
-		$tokenParts = explode('.', $jwt);
-		$headers = base64_decode($tokenParts[0]);
-		$payload = base64_decode($tokenParts[1]);
-		$signature_provided = $tokenParts[2];
-
-		$json_headers = json_decode($headers, true);
-		$json_payload = json_decode($payload, true);
-
-		// check if issuer specified is correct
-		if (isset($options['iss'])) {
-			if (!isset($json_payload['iss'])) {
-				return false;
-			}
-			if (is_string($options['iss']) && $this->istrlen($options['iss']) > 0) {
-				if ($json_payload['iss'] !== $options['iss']) {
-					return false;
-				}
-			} elseif ((is_bool($options['iss']) && $options['iss']) || !is_bool($options['iss'])) {
-				if ($json_payload['iss'] !== $this->issuer) {
-					return false;
-				}
-			}
+        if(isset($payload['nbf']) && $payload['nbf'] - time() > 0) {
+			return false;
 		}
 
-		if (isset($json_payload['iss']) || isset($json_header['iss'])) {
-			if (!isset($json_payload['iss']) || !isset($json_header['iss'])) {
-				return false;
-			}
-			if ($json_payload['iss'] !== $json_header['iss']) {
-				return false;
-			}
-		}
+        return $signature === $this->compile($headers, $payload)['signature'];
+    }
 
-		// check the expiration time if it is set
-		if(isset($json_payload['exp'])) {
-			if(($json_payload['exp'] - time()) < 0) {
-				return false;
-			}
-		}
-
-		// check the not before time if it is set
-		if(isset($json_payload['nbf'])) {
-			if(($json_payload['nbf'] - time()) > 0) {
-				return false;
-			}
-		}
-
-		// build a signature based on the headers and payload using the secret
-		$base64_url_header = $this->base64url_encode($headers);
-		$base64_url_payload = $this->base64url_encode($payload);
-		$signature = hash_hmac('SHA256', $base64_url_header . "." . $base64_url_payload, $options['secret'], true);
-		$base64_url_signature = $this->base64url_encode($signature);
-
-		// verify it matches the signature provided in the JWT
-		return $base64_url_signature === $signature_provided;
-	}
-
-	protected function base64url_encode(string $str): string
-	{
+    protected function base64urlEncode(
+        string $str
+    ): string {
 		return rtrim(strtr(base64_encode($str), '+/', '-_'), '=');
-	}
-
-	protected function istrlen(string $str): int
-	{
-		return mb_strlen(trim($str), 'UTF-8');
 	}
 }
