@@ -6,19 +6,19 @@ class JWT
     protected const TYPE = 'JWT';
 
     /**
-     * Summary of __construct
-    * @param string $secret
-    * @param string $issuer
-    * @param int $ttl
-    */
-    function __construct(
+     * Create new JWT object
+     * @param string $secret
+     * @param string $issuer
+     * @param int $ttl
+     */
+    public function __construct(
         protected string $secret = '',
         protected string $issuer = '',
-        protected int $ttl = 3600
+        protected int $ttl = 3_600
     ) { }
 
     /**
-     * Summary of generate
+     * Generate JWT token
      * @param array $payload
      * @param array $headers
      * @return string
@@ -30,8 +30,7 @@ class JWT
         $headers['alg'] = self::ALGORITHM;
         $headers['typ'] = self::TYPE;
 
-        if (strlen($this->issuer) > 0) {
-            $headers['iss'] = $this->issuer;
+        if (!empty(trim($this->issuer))) {
             $payload['iss'] = $this->issuer;
         }
 
@@ -55,7 +54,7 @@ class JWT
     }
 
     /**
-     * Summary of extract
+     * Extract Data from JWT object
      * @param string $jwt
      * @return array
      */
@@ -74,7 +73,7 @@ class JWT
     }
 
     /**
-     * Summary of validate
+     * Check if JWT token is valid
      * @param string $jwt
      * @return bool
      */
@@ -86,7 +85,17 @@ class JWT
         $payload = $extracted['payload'] ?? [];
         $signature = $extracted['signature'] ?? '';
 
-        if (strlen($this->issuer) > 0 && ($this->issuer !== $header['iss'] || $this->issuer !== $payload['iss'])) {
+        if (!empty(trim($this->issuer))) {
+            if (!isset($payload['iss'])) {
+                return false;
+            }
+
+            if ($this->issuer !== $payload['iss']) {
+                return false;
+            }
+        }
+
+        if(isset($payload['iat']) && $payload['iat'] - time() > 0) {
             return false;
         }
 
@@ -102,7 +111,7 @@ class JWT
     }
 
     /**
-     * Summary of compile
+     * Internal function that builds a JWT
      * @param array $headerData
      * @param array $payloadData
      * @return array
@@ -111,21 +120,21 @@ class JWT
         array $headerData,
         array $payloadData,
     ): array {
-        $header = $this->base64urlEncode(json_encode($headerData));
-        $payload = $this->base64urlEncode(json_encode($payloadData));
+        $header = $this->base64UrlEncode(json_encode($headerData));
+        $payload = $this->base64UrlEncode(json_encode($payloadData));
 
         $signatureData = hash_hmac('SHA256', "$header.$payload", $this->secret, true);
-        $signature = $this->base64urlEncode($signatureData);
+        $signature = $this->base64UrlEncode($signatureData);
 
         return compact('header', 'payload', 'signature');
     }
 
     /**
-     * Summary of base64urlEncode
+     * base64 url encode
      * @param string $str
      * @return string
      */
-    protected function base64urlEncode(
+    protected function base64UrlEncode(
         string $str
     ): string {
         return rtrim(strtr(base64_encode($str), '+/', '-_'), '=');
