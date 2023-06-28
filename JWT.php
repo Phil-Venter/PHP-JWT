@@ -85,14 +85,8 @@ class JWT
         $payload = $extracted['payload'] ?? [];
         $signature = $extracted['signature'] ?? '';
 
-        if (!empty(trim($this->issuer))) {
-            if (!isset($payload['iss'])) {
-                return false;
-            }
-
-            if ($this->issuer !== $payload['iss']) {
-                return false;
-            }
+        if (!empty(trim($this->issuer)) && (!isset($payload['iss']) || $this->issuer !== $payload['iss'])) {
+            return false;
         }
 
         if(isset($payload['iat']) && $payload['iat'] - time() > 0) {
