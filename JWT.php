@@ -55,12 +55,12 @@ class JWT
     public function extract(string $jwt): array
     {
         $tokenParts = explode('.', $jwt);
-        $json_header = base64_decode($tokenParts[0]);
-        $json_payload = base64_decode($tokenParts[1]);
+        $jsonHeader = base64_decode($tokenParts[0]);
+        $jsonPayload = base64_decode($tokenParts[1]);
         $signature = $tokenParts[2];
 
-        $header = json_decode($json_header, true);
-        $payload = json_decode($json_payload, true);
+        $header = json_decode($jsonHeader, true);
+        $payload = json_decode($jsonPayload, true);
 
         return [
             self::HEADER => $header,
