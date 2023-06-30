@@ -120,5 +120,3 @@ class StringHelper
         return rtrim(strtr(base64_encode($str), '+/', '-_'), '=');
     }
 }
-
-echo (new JWT())->generate(['email' => 'philip.venter@roomraccoon.com']);
