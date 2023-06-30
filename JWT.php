@@ -102,7 +102,7 @@ class JWT
         $header = StringHelper::base64UrlEncode(json_encode($headerData));
         $payload = StringHelper::base64UrlEncode(json_encode($payloadData));
 
-        $signatureData = hash_hmac(self::HASH_ALGORITHM, "$header.$payload", $this->secret, true);
+        $signatureData = hash_hmac(self::HASH_ALGORITHM, "{$header}.{$payload}", $this->secret, true);
         $signature = StringHelper::base64UrlEncode($signatureData);
 
         return [
@@ -120,3 +120,5 @@ class StringHelper
         return rtrim(strtr(base64_encode($str), '+/', '-_'), '=');
     }
 }
+
+echo (new JWT())->generate(['email' => 'philip.venter@roomraccoon.com']);
