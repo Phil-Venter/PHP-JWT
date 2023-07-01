@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 class JWT
 {
@@ -19,15 +19,15 @@ class JWT
     protected const PAYLOAD_NOT_BEFORE = 'nbf';
 
     public function __construct(
-        protected string $secret = '',
+        protected string $secret,
         protected string $issuer = '',
         protected int $ttl = 3_600
     ) { }
 
-    public function generate(array $payload, array $headers = []): string
+    public function encode(array $payload, array $header = []): string
     {
-        $headers[self::HEADER_ALGORITHM] = self::HEADER_ALGORITHM_VALUE;
-        $headers[self::HEADER_TYPE] = self::HEADER_TYPE_VALUE;
+        $header[self::HEADER_ALGORITHM] = self::HEADER_ALGORITHM_VALUE;
+        $header[self::HEADER_TYPE] = self::HEADER_TYPE_VALUE;
 
         if (!empty(trim($this->issuer))) {
             $payload[self::PAYLOAD_ISSUER] = $this->issuer;
@@ -49,18 +49,24 @@ class JWT
             $payload[self::PAYLOAD_NOT_BEFORE] = strtotime($payload[self::PAYLOAD_NOT_BEFORE]);
         }
 
-        return implode('.', array_values($this->compile($headers, $payload)));
+        return implode('.', array_values($this->construct($header, $payload)));
     }
 
-    public function extract(string $jwt): array
+    /**
+     * Encode header, payload and create signature
+     *
+     * @param array $headerData
+     * @param array $payloadData
+     *
+     * @return array
+     */
+    protected function construct(array $headerData, array $payloadData): array
     {
-        $tokenParts = explode('.', $jwt);
-        $jsonHeader = base64_decode($tokenParts[0]);
-        $jsonPayload = base64_decode($tokenParts[1]);
-        $signature = $tokenParts[2];
+        $header = StringHelper::base64UrlEncode(json_encode($headerData));
+        $payload = StringHelper::base64UrlEncode(json_encode($payloadData));
 
-        $header = json_decode($jsonHeader, true);
-        $payload = json_decode($jsonPayload, true);
+        $signatureData = hash_hmac(self::HASH_ALGORITHM, "{$header}.{$payload}", $this->secret, true);
+        $signature = StringHelper::base64UrlEncode($signatureData);
 
         return [
             self::HEADER => $header,
@@ -69,13 +75,84 @@ class JWT
         ];
     }
 
-    public function validate(string $jwt): bool
+    /**
+     * Decodes The JWT into the header and payload if it is invalid this will throw an error
+     *
+     * @param string $jwt
+     *
+     * @throws InvalidJWTException
+     *
+     * @return array
+     */
+    public function decode(string $jwt): array
     {
-        $extracted = $this->extract($jwt);
+        $extracted = $this->destruct($jwt);
+
         $header = $extracted[self::HEADER] ?? [];
         $payload = $extracted[self::PAYLOAD] ?? [];
         $signature = $extracted[self::SIGNATURE] ?? '';
 
+        if (!$this->compare($header, $payload, $signature)) {
+            throw new InvalidJWTException();
+        }
+
+        return [
+            self::HEADER => $header,
+            self::PAYLOAD => $payload,
+        ];
+    }
+
+    /**
+     * Converts the JWT string into decoded parts
+     *
+     * @param string $jwt
+     *
+     * @return array
+     */
+    protected function destruct(string $jwt)
+    {
+        $tokenParts = explode('.', $jwt);
+
+        $header = json_decode(base64_decode($tokenParts[0]), true);
+        $payload = json_decode(base64_decode($tokenParts[1]), true);
+        $signature = $tokenParts[2];
+
+        return [
+            self::HEADER => $header,
+            self::PAYLOAD => $payload,
+            self::SIGNATURE => $signature,
+        ];
+    }
+
+    /**
+     * Checks if the JWT token is valid by calling the internal compare function
+     *
+     * @param string $jwt
+     *
+     * @return bool
+     */
+    public function validate(string $jwt): bool
+    {
+        $extracted = $this->destruct($jwt);
+
+        $header = $extracted[self::HEADER] ?? [];
+        $payload = $extracted[self::PAYLOAD] ?? [];
+        $signature = $extracted[self::SIGNATURE] ?? '';
+
+        return $this->compare($header, $payload, $signature);
+    }
+
+    /**
+     * Rebuilds the JWT based on the parts and validates that against the passed signature
+     *
+     * @param array $header
+     * @param array $payload
+     * @param string $signature
+     *
+     * @return bool
+     */
+    protected function compare(array $header, array $payload, string $signature): bool
+    {
         $isIssuerSetInPayload = !isset($payload[self::PAYLOAD_ISSUER])
             || $this->issuer !== $payload[self::PAYLOAD_ISSUER];
         if (!empty(trim($this->issuer)) && $isIssuerSetInPayload) {
@@ -94,29 +171,6 @@ class JWT
             return false;
         }
 
-        return $signature === $this->compile($header, $payload)[self::SIGNATURE];
-    }
-
-    protected function compile(array $headerData, array $payloadData): array
-    {
-        $header = StringHelper::base64UrlEncode(json_encode($headerData));
-        $payload = StringHelper::base64UrlEncode(json_encode($payloadData));
-
-        $signatureData = hash_hmac(self::HASH_ALGORITHM, "{$header}.{$payload}", $this->secret, true);
-        $signature = StringHelper::base64UrlEncode($signatureData);
-
-        return [
-            self::HEADER => $header,
-            self::PAYLOAD => $payload,
-            self::SIGNATURE => $signature,
-        ];
-    }
-}
-
-class StringHelper
-{
-    public static function base64UrlEncode(string $str): string
-    {
-        return rtrim(strtr(base64_encode($str), '+/', '-_'), '=');
+        return $signature === $this->construct($header, $payload)[self::SIGNATURE];
     }
 }
